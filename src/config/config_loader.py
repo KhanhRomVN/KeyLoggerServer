@@ -10,4 +10,12 @@ def load_config():
         raise FileNotFoundError("Configuration file not found")
     
     config.read(config_path)
+    
+    # Strip inline comments from values
+    for section in config.sections():
+        for key in config[section]:
+            value = config[section][key]
+            if '#' in value:
+                config[section][key] = value.split('#')[0].strip()
+                
     return config

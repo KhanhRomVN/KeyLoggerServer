@@ -12,6 +12,9 @@ def create_app():
     # Load configuration
     config = load_config()
     
+    # Store config in app
+    app.config['CONFIG'] = config
+    
     # Setup logging
     setup_logging(config)
     
@@ -30,17 +33,4 @@ def create_app():
     
     return app
 
-app = create_app()
-
-if __name__ == '__main__':
-    config = load_config()
-    ssl_context = (
-        config['server']['ssl_cert'],
-        config['server']['ssl_key']
-    )
-    app.run(
-        host=config['server']['host'],
-        port=config['server']['port'],
-        debug=config['server']['debug'],
-        ssl_context=ssl_context
-    )
+# Remove the if __name__ == '__main__' block since we're using run_server.py
